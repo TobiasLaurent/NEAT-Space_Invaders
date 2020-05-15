@@ -1,5 +1,6 @@
 from Constants import *
 
+
 class Ship:
     COOLDOWN = 30
 
@@ -26,8 +27,8 @@ class Ship:
                 self.lasers.remove(laser)
             elif laser.collision(obj):
                 obj.health -= 100           # kills player instantly
-                #self.lasers.remove(laser)  # has to be done after iteration over all the players!
-                                            # (optional since laser will be removed shortly after for leaving the screen)
+                # self.lasers.remove(laser)  # has to be done after iteration over all the players!
+                # (optional since laser will be removed shortly after for leaving the screen)
 
     def cooldown(self):
         if self.cool_down_counter >= self.COOLDOWN:
@@ -67,7 +68,7 @@ class Player(Ship):
 
     def move_lasers(self, objs):
         self.cooldown()
-        laser_direction = -1 # direction in which the ship shoots: +1 for 'down' and -1 for 'up'
+        laser_direction = -1  # direction in which the ship shoots: +1 for 'down' and -1 for 'up'
         for laser in self.lasers:
             laser.move(laser_direction)
             if laser.off_screen(HEIGHT):
@@ -81,7 +82,7 @@ class Player(Ship):
 
     def draw(self, window):
         super().draw(window)
-        #self.healthbar(window)
+        # self.healthbar(window)
 
     def move_left(self):
         self.x -= self.PLAYER_VEL
@@ -90,7 +91,7 @@ class Player(Ship):
         self.x += self.PLAYER_VEL
 
     # a healthbar is not required when a single laser shot kills the player instantly
-    #def healthbar(self, window):
+    # def healthbar(self, window):
     #    pygame.draw.rect(window, (255, 0, 0), (self.x, self.y +
     #                                           self.ship_img.get_height() + 10, self.ship_img.get_width(), 10))
     #    pygame.draw.rect(window, (0, 255, 0), (self.x, self.y + self.ship_img.get_height() +
@@ -130,6 +131,7 @@ class Enemy(Ship):
             laser = Laser(self.x-20, self.y, self.laser_img)
             self.lasers.append(laser)
             self.cool_down_counter = 1
+
 
 class Laser:
 
