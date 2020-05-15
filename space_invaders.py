@@ -1,6 +1,6 @@
 # In this version of Space Invaders the player can only move left and right.
 # The player loses when an enemy ship collides with him,
-# the enemy hits the player with a laser, or when the enemy ship successfully lands on earth,
+# the enemy hits the player with a laser, or when 5 enemy ships successfully lands on earth,
 # i.e. surpasses the space ship of the player.
 
 
