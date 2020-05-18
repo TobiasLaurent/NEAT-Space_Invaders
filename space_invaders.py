@@ -1,20 +1,26 @@
 # In this version of Space Invaders the player can only move left and right.
 # The player loses when an enemy ship collides with him,
-# the enemy hits the player with a laser, or when 5 enemy ships successfully lands on earth,
+# the enemy hits the player with a laser, or when 5
+# enemy ships successfully lands on earth,
 # i.e. surpasses the space ship of the player.
-
+import pygame
+import os
+# import time
+import random
+import neat
 
 from Object import *
-from Constants import *
 
 pygame.font.init()
 main_font = pygame.font.SysFont("comicsans", 50)
 pygame.display.set_caption("Space Shooter Tutorial")
 
-gen = 0
-######## lives won't be reset to 5 after one generation has failed and the next one is started #######
-######## lives = 0 does not effect the game at all yet ######
-lives = 5
+WIDTH, HEIGHT = 750, 750
+WIN = pygame.display.set_mode((WIDTH, HEIGHT))
+
+# Background
+BG = pygame.transform.scale(pygame.image.load(
+    os.path.join("assets", "background-black.png")), (WIDTH, HEIGHT))
 
 
 def draw_window(win, enemies, players, gen, level):
@@ -35,7 +41,8 @@ def draw_window(win, enemies, players, gen, level):
     win.blit(gen_label, (10, 10))
 
     # alive players
-    score_label = main_font.render(f"Alive: {len(players)}", 1, (255, 255, 255))
+    score_label = main_font.render(
+        f"Alive: {len(players)}", 1, (255, 255, 255))
     win.blit(score_label, (10, 50))
 
     # level label
@@ -57,6 +64,7 @@ def eval_genomes(genomes, config):
     win = WIN
     gen += 1
     level = 0
+    lives = 5
     clock = pygame.time.Clock()
 
     FPS = 60
@@ -94,7 +102,7 @@ def eval_genomes(genomes, config):
             # bird.move()
 
             # send player location, first enemy location and second enemy location and determine from network whether to go right or not
-            #output = nets[players.index(player)].activate((player.y, abs(player.y - enemies[0].y), abs(player.y - enemies[1].y)))
+            # output = nets[players.index(player)].activate((player.y, abs(player.y - enemies[0].y), abs(player.y - enemies[1].y)))
             output = [0.4, 0]
 
             # we use a tanh activation function so result will be between -1 and 1. if over 0.5 go right
@@ -105,7 +113,7 @@ def eval_genomes(genomes, config):
             level += 1
             wave_length += 5
             for i in range(wave_length):
-                enemy = Enemy(random.randrange(50, WIDTH-100),
+                enemy = Enemy(random.randrange(50, WIDTH - 100),
                               random.randrange(-1500, -100), random.choice(["red", "blue", "green"]))
                 enemies.append(enemy)
 
@@ -147,34 +155,15 @@ def eval_genomes(genomes, config):
                 #         ge.pop(players.index(player))
                 #         players.pop(players.index(player))
 
-        # for player in players:
+        for player in players:
+            if lives == 0:
+                for player in players:
+                    ge[players.index(player)].fitness -= 1
+                    nets.pop(players.index(player))
+                    ge.pop(players.index(player))
+                    players.pop(players.index(player))
 
-        #     for enemy in enemies:
-        #         enemy.move()
-        #         enemy.move_lasers(player)
-
-        #         if player.health <= 0:
-        #             ge[players.index(player)].fitness -= 1
-        #             nets.pop(players.index(player))
-        #             ge.pop(players.index(player))
-        #             players.pop(players.index(player))
-
-        #         if collide(enemy, player):
-        #             #player.health -= 100 # kills player instantly
-        #             ge[players.index(player)].fitness -= 1
-        #             nets.pop(players.index(player))
-        #             ge.pop(players.index(player))
-        #             players.pop(players.index(player))
-        #             #enemies.remove(enemy) # does not work since it iterates over players
-        #         elif enemy.y + enemy.get_height() > HEIGHT:
-        #             lives -= 1
-        #             ge[players.index(player)].fitness -= 1
-        #             nets.pop(players.index(player))
-        #             ge.pop(players.index(player))
-        #             players.pop(players.index(player))
-        #             #enemies.remove(enemy) # does not work since it iterates over players
-
-            if random.randrange(0, 2*60) == 1:
+            if random.randrange(0, 2 * 60) == 1:
                 enemy.shoot()
 
         draw_window(win, enemies, players, gen, level)
@@ -186,6 +175,9 @@ def run(config_file):
     # runs the NEAT algorithm to train a neural network to play space invaders.
     # :param config_file: location of config file
     # :return: None
+
+    global gen
+    gen = 0
 
     config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
                                 neat.DefaultSpeciesSet, neat.DefaultStagnation,
