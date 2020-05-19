@@ -5,6 +5,8 @@ import os
 # import neat
 from space_invaders import HEIGHT
 
+main_font = pygame.font.SysFont("comicsans", 50)
+
 
 class Ship:
     COOLDOWN = 30
@@ -45,7 +47,7 @@ class Ship:
         if self.cool_down_counter == 0:
             laser = Laser(self.x, self.y, self.laser_img)
             self.lasers.append(laser)
-            self.cool_down_counter = 1
+            self.cool_down_counter += 1
 
     def get_width(self):
         return self.ship_img.get_width()
@@ -73,19 +75,16 @@ class Player(Ship):
         self.mask = pygame.mask.from_surface(self.ship_img)
         self.max_health = health
 
-    def move_lasers(self, objs):
+    def move_lasers(self, obj):
         self.cooldown()
         laser_direction = -1  # direction in which the ship shoots: +1 for 'down' and -1 for 'up'
         for laser in self.lasers:
             laser.move(laser_direction)
             if laser.off_screen(HEIGHT):
                 self.lasers.remove(laser)
-            else:
-                for obj in objs:
-                    if laser.collision(obj):
-                        objs.remove(obj)
-                        if laser in self.lasers:
-                            self.lasers.remove(laser)
+            elif laser.collision(obj):
+                obj.health -= 100
+                self.lasers.remove(laser)
 
     def draw(self, window):
         super().draw(window)
@@ -96,13 +95,6 @@ class Player(Ship):
 
     def move_right(self):
         self.x += self.PLAYER_VEL
-
-    # a healthbar is not required when a single laser shot kills the player instantly
-    # def healthbar(self, window):
-       # pygame.draw.rect(window, (255, 0, 0), (self.x, self.y +
-       #                                        self.ship_img.get_height() + 10, self.ship_img.get_width(), 10))
-       # pygame.draw.rect(window, (0, 255, 0), (self.x, self.y + self.ship_img.get_height() +
-       #                                        10, self.ship_img.get_width() * (self.health/self.max_health), 10))
 
 
 class Enemy(Ship):
@@ -129,7 +121,7 @@ class Enemy(Ship):
         "blue": (BLUE_SPACE_SHIP, BLUE_LASER)
     }
 
-    ENEMY_VEL = 5
+    ENEMY_VEL = 3
 
     def __init__(self, x, y, color, health=100):
         super().__init__(x, y, health)
@@ -148,7 +140,7 @@ class Enemy(Ship):
 
 class Laser:
 
-    LASER_VEL = 6
+    LASER_VEL = 5
 
     def __init__(self, x, y, img):
         self.x = x

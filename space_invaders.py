@@ -68,7 +68,6 @@ def eval_genomes(genomes, config):
     clock = pygame.time.Clock()
 
     FPS = 60
-    main_font = pygame.font.SysFont("comicsans", 50)
 
     enemies = []
     wave_length = 5
@@ -90,6 +89,7 @@ def eval_genomes(genomes, config):
     while run and len(players) > 0:
         clock.tick(FPS)
 
+        # exit the game and end the run loop
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
@@ -97,18 +97,7 @@ def eval_genomes(genomes, config):
                 quit()
                 break
 
-        for player in players:  # give each bird a fitness of 0.1 for each frame it stays alive
-            ge[players.index(player)].fitness += 0.1
-            # bird.move()
-
-            # send player location, first enemy location and second enemy location and determine from network whether to go right or not
-            # output = nets[players.index(player)].activate((player.y, abs(player.y - enemies[0].y), abs(player.y - enemies[1].y)))
-            output = [0.4, 0]
-
-            # we use a tanh activation function so result will be between -1 and 1. if over 0.5 go right
-            if output[0] > 0.5 and player.x + player.PLAYER_VEL + player.get_width() < WIDTH:
-                player.move_right()
-
+        # creates new wave of enemies once all enemies of the previos wave have been removed
         if len(enemies) == 0:
             level += 1
             wave_length += 5
@@ -117,13 +106,48 @@ def eval_genomes(genomes, config):
                               random.randrange(-1500, -100), random.choice(["red", "blue", "green"]))
                 enemies.append(enemy)
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                quit()
+        # TODO: does this really work????
+        # determine:
+        # 1. the closest enemy and set them as target index for the network
+        # 2. the closest laser and save the distance to the player in y-direction into dist_laser
+        target_ind = 0
+        # avoid_ind = 0
+        dist_target = 2200     # max dist between players and spawned enemies is 2130
+        dist_laser = 2200       # max dist between players and spawned lasers is 2130
+        if len(enemies) > 0:
+            for enemy in enemies:
+                if abs(630 - enemy.y) < dist_target:
+                    dist_target = abs(630 - enemy.y)
+                    target_ind = enemies.index(enemy)
+                for laser in enemy.lasers:
+                    if abs(630 - laser.y) < dist_laser:
+                        dist_laser = abs(630 - laser.y)
+                        # avoid_ind = enemies.index(enemy)
+
+        # the network determines wether to go left, right or shoot based of the nearest enemy and laser
+        for player in players:
+            # give each bird a fitness of 0.1 for each frame it stays alive
+            ge[players.index(player)].fitness += 0.1
+
+            # send player location, first enemy location and second enemy location and determine from network whether to go right or not
+            output = nets[players.index(player)].activate((player.y, abs(player.x - enemies[target_ind].x), dist_laser))
+
+            # we use a tanh activation function so result will be between -1 and 1. if over 0.5 go right
+            if output[0] > 0.5 and player.x + player.PLAYER_VEL + player.get_width() < WIDTH:
+                player.move_right()
+
+            # we use a tanh activation function so result will be between -1 and 1. if over 0.5 go left
+            if output[1] > 0.5 and player.x - player.PLAYER_VEL > 0:
+                player.move_left()
+
+            # we use a tanh activation function so result will be between -1 and 1. if over 0.5 go shoot
+            if output[2] > 0.5:
+                player.shoot()
 
         for enemy in enemies:
             enemy.move()
 
+            # fitness function for network
             for player in players:
                 enemy.move_lasers(player)
                 if player.health <= 0:
@@ -131,6 +155,13 @@ def eval_genomes(genomes, config):
                     nets.pop(players.index(player))
                     ge.pop(players.index(player))
                     players.pop(players.index(player))
+
+                # TODO: players can shoot constantly -> cooldown does not work
+                # TODO: enemies.remove(enemy) must be outside the player loop -> can only be removed once
+                # player.move_lasers(enemy)
+                # if enemy.health == 0:
+                #     ge[players.index(player)].fitness += 1
+                #     enemies.remove(enemy)
 
                 # checks for collusion between current enemy with current player
                 # each player that collide with the current enemy will be remove
@@ -148,12 +179,6 @@ def eval_genomes(genomes, config):
             if enemy.y + enemy.get_height() > HEIGHT:
                 lives -= 1
                 enemies.remove(enemy)
-                # if lives == 0:
-                #     for player in players:
-                #         ge[players.index(player)].fitness -= 1
-                #         nets.pop(players.index(player))
-                #         ge.pop(players.index(player))
-                #         players.pop(players.index(player))
 
         for player in players:
             if lives == 0:
@@ -167,8 +192,6 @@ def eval_genomes(genomes, config):
                 enemy.shoot()
 
         draw_window(win, enemies, players, gen, level)
-
-        player.move_lasers(enemies)
 
 
 def run(config_file):
