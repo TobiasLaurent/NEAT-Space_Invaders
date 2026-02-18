@@ -41,6 +41,20 @@ You can also bypass the prompt:
 - `python3 space_invaders.py --mode fresh`
 - `python3 space_invaders.py --mode best`
 
+Run built-in reward experiments:
+- `python3 space_invaders.py --experiment`
+- `python3 space_invaders.py --experiment --generations 30 --experiment-episodes 5 --seed 123`
+
+Experiment outputs:
+- `experiment_summary.csv` (cross-profile benchmark ranking)
+- `best_genome_<profile>.pkl` (winner per reward profile)
+- `training_metrics_<profile>.csv` (training telemetry per profile)
+
+Profile visuals while running:
+- `kill_focus`: warm yellow tint
+- `balanced`: green tint
+- `precision`: blue tint
+
 ## Regenerate Art Assets
 
 The sprite/background set can be regenerated at any time with:
@@ -53,6 +67,7 @@ The sprite/background set can be regenerated at any time with:
 
 - Population: `pop_size = 10`
 - Run length: up to `50` generations (`p.run(eval_genomes, 50)`)
+- Evaluation protocol: each genome runs alone for `3` deterministic episodes; fitness is averaged per genome
 - Phase flow: regular enemy wave -> boss fight -> next regular wave
 - Network inputs (`num_inputs = 11`):
   - `player_x_norm`, `player_y_norm`
@@ -64,7 +79,7 @@ The sprite/background set can be regenerated at any time with:
 
 ### Active Reward Function
 
-Current reward shaping in `space_invaders.py`:
+Default profile (`kill_focus`) reward shaping in `space_invaders.py`:
 - survival reward: `+0.005` per frame alive
 - kill reward: `+12.0` per enemy killed
 - boss kill reward: `+32.0` per boss defeated
@@ -74,6 +89,8 @@ Current reward shaping in `space_invaders.py`:
 - death penalty: `-10.0` on player death
 - enemy escape penalty: `-1.0` when an enemy reaches the bottom (applied to alive genomes)
 - level fail penalty: `-4.0` when lives reach zero
+
+Additional built-in profiles for `--experiment`: `balanced`, `precision`.
 
 ## Implemented Findings So Far
 

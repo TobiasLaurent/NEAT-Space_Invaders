@@ -1,6 +1,6 @@
 [NEAT]
-# Reward profile (in space_invaders.py) is kill-heavy and strongly penalizes laser hits/deaths.
-# Keep this in mind when adjusting fitness thresholds or early-stop criteria.
+# Reward profile is selected at runtime in space_invaders.py.
+# Default is kill_focus; --experiment compares multiple built-in profiles.
 fitness_criterion     = max
 fitness_threshold     = 100
 pop_size              = 10

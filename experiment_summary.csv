@@ -1,0 +1,4 @@
+profile,winner_fitness,avg_frames_survived,avg_kills,avg_boss_kills,avg_wave_clears,avg_shots_fired,avg_laser_hits_taken,avg_lives_remaining,kill_per_shot,winner_path
+kill_focus,17.03667,502.0,1.2,0.0,0.0,16.6,0.6,2.0,0.0723,/Users/lauret/workspace/NEAT-Space_Invaders/best_genome_kill_focus.pkl
+balanced,8.52,615.2,2.2,0.0,0.0,19.0,0.0,0.0,0.1158,/Users/lauret/workspace/NEAT-Space_Invaders/best_genome_balanced.pkl
+precision,9.23633,378.2,1.4,0.0,0.0,8.6,0.8,4.6,0.1628,/Users/lauret/workspace/NEAT-Space_Invaders/best_genome_precision.pkl
