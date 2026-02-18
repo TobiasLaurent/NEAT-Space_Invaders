@@ -5,6 +5,7 @@
 # i.e. surpasses the space ship of the player.
 import pygame
 import os
+import csv
 # import time
 import random
 import neat
@@ -21,6 +22,40 @@ WIN = pygame.display.set_mode((WIDTH, HEIGHT))
 # Background
 BG = pygame.transform.scale(pygame.image.load(
     os.path.join("assets", "background-black.png")), (WIDTH, HEIGHT))
+TRAINING_METRICS_PATH = os.path.join(os.path.dirname(__file__), "training_metrics.csv")
+
+
+def append_training_metrics_row(metrics_row):
+    fieldnames = [
+        "generation",
+        "frames",
+        "population_size",
+        "survivors_at_end",
+        "lives_remaining",
+        "avg_fitness",
+        "best_fitness",
+        "worst_fitness",
+        "shots_fired",
+        "kills",
+        "enemy_escapes",
+        "player_deaths",
+        "wave_clears",
+        "level_failures",
+        "kill_per_shot",
+        "survival_reward_total",
+        "kill_reward_total",
+        "wave_clear_reward_total",
+        "shot_penalty_total",
+        "death_penalty_total",
+        "enemy_escape_penalty_total",
+        "level_fail_penalty_total",
+    ]
+    file_exists = os.path.exists(TRAINING_METRICS_PATH)
+    with open(TRAINING_METRICS_PATH, "a", newline="") as metrics_file:
+        writer = csv.DictWriter(metrics_file, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(metrics_row)
 
 
 def draw_window(win, enemies, players, gen, level):
@@ -69,6 +104,38 @@ def eval_genomes(genomes, config):
 
     FPS = 60
 
+    # Reward shaping tuned to prioritize meaningful combat over passive stalling.
+    SURVIVAL_REWARD = 0.02
+    KILL_REWARD = 4.0
+    WAVE_CLEAR_REWARD = 2.0
+    SHOT_PENALTY = 0.01
+    DEATH_PENALTY = 4.0
+    ENEMY_ESCAPE_PENALTY = 0.75
+    LEVEL_FAIL_PENALTY = 2.0
+
+    reward_totals = {
+        "survival_reward_total": 0.0,
+        "kill_reward_total": 0.0,
+        "wave_clear_reward_total": 0.0,
+        "shot_penalty_total": 0.0,
+        "death_penalty_total": 0.0,
+        "enemy_escape_penalty_total": 0.0,
+        "level_fail_penalty_total": 0.0,
+    }
+    event_totals = {
+        "shots_fired": 0,
+        "kills": 0,
+        "enemy_escapes": 0,
+        "player_deaths": 0,
+        "wave_clears": 0,
+        "level_failures": 0,
+    }
+    frame_count = 0
+
+    def apply_reward(player_index, delta, reward_key):
+        ge[player_index].fitness += delta
+        reward_totals[reward_key] += delta
+
     enemies = []
     wave_length = 5
 
@@ -88,6 +155,7 @@ def eval_genomes(genomes, config):
     run = True
     while run and len(players) > 0:
         clock.tick(FPS)
+        frame_count += 1
 
         # exit the game and end the run loop
         for event in pygame.event.get():
@@ -99,6 +167,10 @@ def eval_genomes(genomes, config):
 
         # creates new wave of enemies once all enemies of the previos wave have been removed
         if len(enemies) == 0:
+            if level > 0:
+                event_totals["wave_clears"] += 1
+                for i in range(len(ge)):
+                    apply_reward(i, WAVE_CLEAR_REWARD, "wave_clear_reward_total")
             level += 1
             wave_length += 5
             for i in range(wave_length):
@@ -124,74 +196,148 @@ def eval_genomes(genomes, config):
                         dist_laser = abs(630 - laser.y)
                         # avoid_ind = enemies.index(enemy)
 
-        # the network determines wether to go left, right or shoot based of the nearest enemy and laser
-        for player in players:
-            # give each bird a fitness of 0.1 for each frame it stays alive
-            ge[players.index(player)].fitness += 0.1
+        # the network determines whether to go left, right or shoot based on the nearest enemy and laser
+        for i, player in enumerate(players):
+            # small survival reward each frame
+            apply_reward(i, SURVIVAL_REWARD, "survival_reward_total")
 
-            # send player location, first enemy location and second enemy location and determine from network whether to go right or not
-            output = nets[players.index(player)].activate((player.y, abs(player.x - enemies[target_ind].x), dist_laser))
+            # send player location, nearest enemy x-distance and nearest enemy-laser y-distance
+            output = nets[i].activate((player.y, abs(player.x - enemies[target_ind].x), dist_laser))
 
-            # we use a tanh activation function so result will be between -1 and 1. if over 0.5 go right
+            # tanh outputs are in [-1, 1]
             if output[0] > 0.5 and player.x + player.PLAYER_VEL + player.get_width() < WIDTH:
                 player.move_right()
 
-            # we use a tanh activation function so result will be between -1 and 1. if over 0.5 go left
             if output[1] > 0.5 and player.x - player.PLAYER_VEL > 0:
                 player.move_left()
 
-            # we use a tanh activation function so result will be between -1 and 1. if over 0.5 go shoot
             if output[2] > 0.5:
+                shots_before = len(player.lasers)
                 player.shoot()
+                if len(player.lasers) > shots_before:
+                    event_totals["shots_fired"] += 1
+                    apply_reward(i, -SHOT_PENALTY, "shot_penalty_total")
 
-        for enemy in enemies:
+        # update player lasers once per frame so shooting/cooldown works during training
+        for i, player in enumerate(players):
+            player.cooldown()
+            for laser in player.lasers[:]:
+                laser.move(-1)
+
+                if laser.off_screen(HEIGHT):
+                    player.lasers.remove(laser)
+                    continue
+
+                for enemy in enemies[:]:
+                    if laser.collision(enemy):
+                        enemy.health -= 100
+                        if laser in player.lasers:
+                            player.lasers.remove(laser)
+                        if enemy.health <= 0 and enemy in enemies:
+                            enemies.remove(enemy)
+                            event_totals["kills"] += 1
+                            apply_reward(i, KILL_REWARD, "kill_reward_total")
+                        break
+
+        for enemy in enemies[:]:
             enemy.move()
-
-            # fitness function for network
-            for player in players:
-                enemy.move_lasers(player)
-                if player.health <= 0:
-                    ge[players.index(player)].fitness -= 1
-                    nets.pop(players.index(player))
-                    ge.pop(players.index(player))
-                    players.pop(players.index(player))
-
-                # TODO: players can shoot constantly -> cooldown does not work
-                # TODO: enemies.remove(enemy) must be outside the player loop -> can only be removed once
-                # player.move_lasers(enemy)
-                # if enemy.health == 0:
-                #     ge[players.index(player)].fitness += 1
-                #     enemies.remove(enemy)
-
-                # checks for collusion between current enemy with current player
-                # each player that collide with the current enemy will be remove
-                if collide(enemy, player):
-                    ge[players.index(player)].fitness -= 1
-                    nets.pop(players.index(player))
-                    ge.pop(players.index(player))
-                    players.pop(players.index(player))
-                    # the enemy has to be removed after every player has been checked for collision
-                    # try:
-                    #    enemies.remove(enemy)
-                    # except:
-                    #    pass
-
-            if enemy.y + enemy.get_height() > HEIGHT:
-                lives -= 1
-                enemies.remove(enemy)
-
-        for player in players:
-            if lives == 0:
-                for player in players:
-                    ge[players.index(player)].fitness -= 1
-                    nets.pop(players.index(player))
-                    ge.pop(players.index(player))
-                    players.pop(players.index(player))
 
             if random.randrange(0, 2 * 60) == 1:
                 enemy.shoot()
 
+            enemy.cooldown()
+            for laser in enemy.lasers[:]:
+                laser.move(1)
+
+                if laser.off_screen(HEIGHT):
+                    enemy.lasers.remove(laser)
+                    continue
+
+                hit_player = False
+                for player in players:
+                    if laser.collision(player):
+                        player.health -= 100
+                        hit_player = True
+
+                if hit_player and laser in enemy.lasers:
+                    enemy.lasers.remove(laser)
+
+            if enemy.y + enemy.get_height() > HEIGHT:
+                lives -= 1
+                event_totals["enemy_escapes"] += 1
+                for i in range(len(ge)):
+                    apply_reward(i, -ENEMY_ESCAPE_PENALTY, "enemy_escape_penalty_total")
+                enemies.remove(enemy)
+                continue
+
+            collided_players = [player for player in players if collide(enemy, player)]
+            if collided_players:
+                for player in collided_players:
+                    player.health -= 100
+                if enemy in enemies:
+                    enemies.remove(enemy)
+
+        # remove dead players and associated genomes
+        for i in range(len(players) - 1, -1, -1):
+            if players[i].health <= 0:
+                event_totals["player_deaths"] += 1
+                apply_reward(i, -DEATH_PENALTY, "death_penalty_total")
+                nets.pop(i)
+                ge.pop(i)
+                players.pop(i)
+
+        if lives <= 0:
+            event_totals["level_failures"] += 1
+            for i in range(len(players) - 1, -1, -1):
+                apply_reward(i, -LEVEL_FAIL_PENALTY, "level_fail_penalty_total")
+                nets.pop(i)
+                ge.pop(i)
+                players.pop(i)
+
         draw_window(win, enemies, players, gen, level)
+
+    generation_index = gen - 1
+    population_size = len(genomes)
+    fitness_values = [genome.fitness for _, genome in genomes]
+    avg_fitness = sum(fitness_values) / population_size
+    best_fitness = max(fitness_values)
+    worst_fitness = min(fitness_values)
+    kill_per_shot = event_totals["kills"] / event_totals["shots_fired"] if event_totals["shots_fired"] > 0 else 0.0
+
+    metrics_row = {
+        "generation": generation_index,
+        "frames": frame_count,
+        "population_size": population_size,
+        "survivors_at_end": len(players),
+        "lives_remaining": lives,
+        "avg_fitness": round(avg_fitness, 5),
+        "best_fitness": round(best_fitness, 5),
+        "worst_fitness": round(worst_fitness, 5),
+        "shots_fired": event_totals["shots_fired"],
+        "kills": event_totals["kills"],
+        "enemy_escapes": event_totals["enemy_escapes"],
+        "player_deaths": event_totals["player_deaths"],
+        "wave_clears": event_totals["wave_clears"],
+        "level_failures": event_totals["level_failures"],
+        "kill_per_shot": round(kill_per_shot, 5),
+        "survival_reward_total": round(reward_totals["survival_reward_total"], 5),
+        "kill_reward_total": round(reward_totals["kill_reward_total"], 5),
+        "wave_clear_reward_total": round(reward_totals["wave_clear_reward_total"], 5),
+        "shot_penalty_total": round(reward_totals["shot_penalty_total"], 5),
+        "death_penalty_total": round(reward_totals["death_penalty_total"], 5),
+        "enemy_escape_penalty_total": round(reward_totals["enemy_escape_penalty_total"], 5),
+        "level_fail_penalty_total": round(reward_totals["level_fail_penalty_total"], 5),
+    }
+    append_training_metrics_row(metrics_row)
+
+    print(
+        f"[RewardLog][Gen {generation_index}] "
+        f"shots={metrics_row['shots_fired']} kills={metrics_row['kills']} k/shot={metrics_row['kill_per_shot']:.3f} "
+        f"reward_totals(survival={metrics_row['survival_reward_total']:.3f}, "
+        f"kill={metrics_row['kill_reward_total']:.3f}, wave={metrics_row['wave_clear_reward_total']:.3f}, "
+        f"shot={metrics_row['shot_penalty_total']:.3f}, death={metrics_row['death_penalty_total']:.3f}, "
+        f"escape={metrics_row['enemy_escape_penalty_total']:.3f}, fail={metrics_row['level_fail_penalty_total']:.3f})"
+    )
 
 
 def run(config_file):
