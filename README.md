@@ -2,6 +2,10 @@
 
 This project explores whether a NEAT-evolved feed-forward network can learn to play a simplified Space Invaders environment in `pygame`.
 
+![NEAT agent playing Space Invaders](assets/screenshot.png)
+
+*The NEAT-trained agent (gold ship, bottom) navigating wave 1 — dodging enemy fire and shooting back at red and green invaders descending from above.*
+
 ## Purpose
 
 The project has two goals:
