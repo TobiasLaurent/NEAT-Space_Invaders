@@ -396,7 +396,7 @@ def make_eval_genomes(win):
 
         for genome_position, (genome_id, genome) in enumerate(genomes):
             genome.fitness = 0.0
-            net = neat.nn.FeedForwardNetwork.create(genome, config)
+            net = neat.nn.RecurrentNetwork.create(genome, config)
 
             episode_fitness_values = []
             episode_lives_values = []
@@ -484,7 +484,7 @@ def replay_saved_genome(config_file, genome_path):
     set_active_reward_profile(replay_profile)
     config = load_config(config_file)
     genome = load_best_genome(genome_path)
-    net = neat.nn.FeedForwardNetwork.create(genome, config)
+    net = neat.nn.RecurrentNetwork.create(genome, config)
 
     win = WIN
     clock = pygame.time.Clock()
@@ -536,7 +536,7 @@ def replay_saved_genome(config_file, genome_path):
 
 def evaluate_genome_episode(genome, config, seed, max_frames=3600):
     rng = random.Random(seed)
-    net = neat.nn.FeedForwardNetwork.create(genome, config)
+    net = neat.nn.RecurrentNetwork.create(genome, config)
     episode_result = run_single_agent_episode(
         net,
         rng,
