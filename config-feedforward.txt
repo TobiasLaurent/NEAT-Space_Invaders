@@ -1,4 +1,6 @@
 [NEAT]
+# Reward profile (in space_invaders.py) is kill-heavy and strongly penalizes laser hits/deaths.
+# Keep this in mind when adjusting fitness thresholds or early-stop criteria.
 fitness_criterion     = max
 fitness_threshold     = 100
 pop_size              = 10
@@ -51,7 +53,11 @@ structural_mutation_surer = default
 
 # network parameters
 num_hidden              = 0
-num_inputs              = 3
+# Observation vector in space_invaders.py (11 inputs):
+# [player_x_norm, player_y_norm, nearest_enemy_dx, nearest_enemy_dy,
+#  nearest_laser_dx, nearest_laser_dy, enemy_count_norm, boss_present,
+#  own_laser_count_norm, cooldown_norm, nearest_own_laser_dy]
+num_inputs              = 11
 num_outputs             = 3
 
 # node response options

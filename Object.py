@@ -3,9 +3,8 @@ import os
 # import time
 # import random
 # import neat
-from space_invaders import HEIGHT
 
-main_font = pygame.font.SysFont("comicsans", 50)
+SCREEN_HEIGHT = 750
 
 
 class Ship:
@@ -28,9 +27,9 @@ class Ship:
     def move_lasers(self, obj):
         self.cooldown()
         laser_direction = 1    # direction in which the ship shoots: +1 for 'down' and -1 for 'up'
-        for laser in self.lasers:
+        for laser in self.lasers[:]:
             laser.move(laser_direction)
-            if laser.off_screen(HEIGHT):
+            if laser.off_screen(SCREEN_HEIGHT):
                 self.lasers.remove(laser)
             elif laser.collision(obj):
                 obj.health -= 100           # kills player instantly
@@ -78,9 +77,9 @@ class Player(Ship):
     def move_lasers(self, obj):
         self.cooldown()
         laser_direction = -1  # direction in which the ship shoots: +1 for 'down' and -1 for 'up'
-        for laser in self.lasers:
+        for laser in self.lasers[:]:
             laser.move(laser_direction)
-            if laser.off_screen(HEIGHT):
+            if laser.off_screen(SCREEN_HEIGHT):
                 self.lasers.remove(laser)
             elif laser.collision(obj):
                 obj.health -= 100
@@ -136,6 +135,61 @@ class Enemy(Ship):
             laser = Laser(self.x - 20, self.y, self.laser_img)
             self.lasers.append(laser)
             self.cool_down_counter = 1
+
+
+class Boss(Enemy):
+    """A larger enemy encountered after each regular wave."""
+
+    BOSS_WIDTH = 130
+    BOSS_HEIGHT = 96
+    BOSS_SIDE_MARGIN = 30
+
+    BOSS_SHIP = pygame.transform.smoothscale(Enemy.RED_SPACE_SHIP, (BOSS_WIDTH, BOSS_HEIGHT))
+    BOSS_LASER = Enemy.RED_LASER
+
+    def __init__(self, x, y, level):
+        # Scale health with level so bosses remain relevant in later rounds.
+        health = 350 + (level * 50)
+        super().__init__(x, y, "red", health=health)
+        self.level = level
+        self.max_health = health
+        self.ship_img = self.BOSS_SHIP
+        self.laser_img = self.BOSS_LASER
+        self.mask = pygame.mask.from_surface(self.ship_img)
+        self.direction_x = 1
+        self.horizontal_speed = 2 + (level // 3)
+        self.vertical_speed = 1
+        self.target_y = 45 + min(40, level * 4)
+
+    def move(self, width):
+        if self.y < self.target_y:
+            self.y = min(self.target_y, self.y + self.vertical_speed)
+
+        self.x += self.direction_x * self.horizontal_speed
+
+        left_bound = self.BOSS_SIDE_MARGIN
+        right_bound = width - self.BOSS_SIDE_MARGIN - self.get_width()
+        if self.x <= left_bound:
+            self.x = left_bound
+            self.direction_x = 1
+        elif self.x >= right_bound:
+            self.x = right_bound
+            self.direction_x = -1
+
+    def shoot(self):
+        if self.cool_down_counter != 0:
+            return
+
+        laser_half_width = self.laser_img.get_width() // 2
+        barrel_centers = (
+            self.x + 22,
+            self.x + (self.get_width() // 2),
+            self.x + self.get_width() - 22,
+        )
+        laser_y = self.y + self.get_height() - 10
+        for center_x in barrel_centers:
+            self.lasers.append(Laser(center_x - laser_half_width, laser_y, self.laser_img))
+        self.cool_down_counter = 1
 
 
 class Laser:

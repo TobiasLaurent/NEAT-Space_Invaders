@@ -13,6 +13,7 @@ Each generation evaluates multiple genomes in-game and evolves policies for:
 - horizontal movement (`left`, `right`)
 - shooting
 - survival against incoming enemies and lasers
+- defeating a boss that appears after each cleared regular wave
 
 ## Repository Layout
 
@@ -32,23 +33,47 @@ pip install -r requirements.txt
 python3 space_invaders.py
 ```
 
+When launching `space_invaders.py`, you can choose:
+- `1` fresh training run
+- `2` replay best saved genome
+
+You can also bypass the prompt:
+- `python3 space_invaders.py --mode fresh`
+- `python3 space_invaders.py --mode best`
+
+## Regenerate Art Assets
+
+The sprite/background set can be regenerated at any time with:
+
+```bash
+./.venv/bin/python assets/generate_art_assets.py
+```
+
 ## Current Training Setup
 
 - Population: `pop_size = 10`
 - Run length: up to `50` generations (`p.run(eval_genomes, 50)`)
-- Network inputs: `player.y`, `abs(player.x - target_enemy.x)`, nearest enemy-laser vertical distance
+- Phase flow: regular enemy wave -> boss fight -> next regular wave
+- Network inputs (`num_inputs = 11`):
+  - `player_x_norm`, `player_y_norm`
+  - signed nearest-enemy offsets: `nearest_enemy_dx`, `nearest_enemy_dy`
+  - signed nearest-laser offsets: `nearest_laser_dx`, `nearest_laser_dy`
+  - threat context: `enemy_count_norm`, `boss_present`
+  - self-shot context: `own_laser_count_norm`, `cooldown_norm`, `nearest_own_laser_dy`
 - Network outputs: move right, move left, shoot
 
 ### Active Reward Function
 
 Current reward shaping in `space_invaders.py`:
-- survival reward: `+0.02` per frame alive
-- kill reward: `+4.0` per enemy killed
-- wave clear reward: `+2.0` per cleared wave
-- shot penalty: `-0.01` per shot fired
-- death penalty: `-4.0` on player death
-- enemy escape penalty: `-0.75` when an enemy reaches the bottom (applied to alive genomes)
-- level fail penalty: `-2.0` when lives reach zero
+- survival reward: `+0.005` per frame alive
+- kill reward: `+12.0` per enemy killed
+- boss kill reward: `+32.0` per boss defeated
+- wave clear reward: `+4.0` per cleared wave
+- shot penalty: `-0.005` per shot fired
+- laser-hit penalty: `-10.0` when a player is hit by an enemy laser
+- death penalty: `-10.0` on player death
+- enemy escape penalty: `-1.0` when an enemy reaches the bottom (applied to alive genomes)
+- level fail penalty: `-4.0` when lives reach zero
 
 ## Implemented Findings So Far
 
