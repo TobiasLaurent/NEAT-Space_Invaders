@@ -14,6 +14,17 @@ import neat
 
 from Object import *
 from engine import EpisodeState, step_frame
+from observations import build_observation as build_observation_for_world
+from training_types import (
+    BenchmarkMetrics,
+    EpisodeResult,
+    EventTotals,
+    ExperimentResult,
+    GenerationMetricsRow,
+    GenomeEpisodeMetrics,
+    RewardProfile,
+    RewardTotals,
+)
 
 pygame.font.init()
 hud_font = pygame.font.SysFont("comicsans", 30)
@@ -31,39 +42,39 @@ BEST_GENOME_PATH = os.path.join(os.path.dirname(__file__), "best_genome.pkl")
 EXPERIMENT_SUMMARY_PATH = os.path.join(os.path.dirname(__file__), "experiment_summary.csv")
 
 REWARD_PROFILES = {
-    "kill_focus": {
-        "survival_reward": 0.005,
-        "kill_reward": 12.0,
-        "boss_kill_reward": 32.0,
-        "wave_clear_reward": 4.0,
-        "shot_penalty": 0.005,
-        "laser_hit_penalty": 10.0,
-        "death_penalty": 10.0,
-        "enemy_escape_penalty": 1.0,
-        "level_fail_penalty": 4.0,
-    },
-    "balanced": {
-        "survival_reward": 0.01,
-        "kill_reward": 8.0,
-        "boss_kill_reward": 20.0,
-        "wave_clear_reward": 3.0,
-        "shot_penalty": 0.005,
-        "laser_hit_penalty": 6.0,
-        "death_penalty": 7.0,
-        "enemy_escape_penalty": 1.0,
-        "level_fail_penalty": 3.0,
-    },
-    "precision": {
-        "survival_reward": 0.003,
-        "kill_reward": 10.0,
-        "boss_kill_reward": 26.0,
-        "wave_clear_reward": 3.0,
-        "shot_penalty": 0.02,
-        "laser_hit_penalty": 9.0,
-        "death_penalty": 9.0,
-        "enemy_escape_penalty": 1.2,
-        "level_fail_penalty": 4.0,
-    },
+    "kill_focus": RewardProfile(
+        survival_reward=0.005,
+        kill_reward=12.0,
+        boss_kill_reward=32.0,
+        wave_clear_reward=4.0,
+        shot_penalty=0.005,
+        laser_hit_penalty=10.0,
+        death_penalty=10.0,
+        enemy_escape_penalty=1.0,
+        level_fail_penalty=4.0,
+    ),
+    "balanced": RewardProfile(
+        survival_reward=0.01,
+        kill_reward=8.0,
+        boss_kill_reward=20.0,
+        wave_clear_reward=3.0,
+        shot_penalty=0.005,
+        laser_hit_penalty=6.0,
+        death_penalty=7.0,
+        enemy_escape_penalty=1.0,
+        level_fail_penalty=3.0,
+    ),
+    "precision": RewardProfile(
+        survival_reward=0.003,
+        kill_reward=10.0,
+        boss_kill_reward=26.0,
+        wave_clear_reward=3.0,
+        shot_penalty=0.02,
+        laser_hit_penalty=9.0,
+        death_penalty=9.0,
+        enemy_escape_penalty=1.2,
+        level_fail_penalty=4.0,
+    ),
 }
 
 ACTIVE_REWARD_PROFILE_NAME = "kill_focus"
@@ -95,37 +106,14 @@ PROFILE_VISUALS = {
 PROFILE_ASSET_CACHE = {}
 
 
-def append_training_metrics_row(metrics_row):
-    fieldnames = [
-        "generation",
-        "frames",
-        "population_size",
-        "survivors_at_end",
-        "lives_remaining",
-        "avg_fitness",
-        "best_fitness",
-        "worst_fitness",
-        "shots_fired",
-        "kills",
-        "enemy_escapes",
-        "player_deaths",
-        "wave_clears",
-        "level_failures",
-        "kill_per_shot",
-        "survival_reward_total",
-        "kill_reward_total",
-        "wave_clear_reward_total",
-        "shot_penalty_total",
-        "death_penalty_total",
-        "enemy_escape_penalty_total",
-        "level_fail_penalty_total",
-    ]
+def append_training_metrics_row(metrics_row: GenerationMetricsRow):
+    fieldnames = GenerationMetricsRow.fieldnames()
     file_exists = os.path.exists(ACTIVE_TRAINING_METRICS_PATH)
     with open(ACTIVE_TRAINING_METRICS_PATH, "a", newline="") as metrics_file:
         writer = csv.DictWriter(metrics_file, fieldnames=fieldnames)
         if not file_exists:
             writer.writeheader()
-        writer.writerow(metrics_row)
+        writer.writerow(metrics_row.as_dict())
 
 
 def load_config(config_file):
@@ -211,73 +199,8 @@ def resolve_start_mode(cli_mode):
     return "fresh"
 
 
-def clamp_signed(value, scale):
-    if scale == 0:
-        return 0.0
-    return max(-1.0, min(1.0, value / scale))
-
-
 def build_observation(player, enemies):
-    """Build richer, signed threat and self-state features for one player."""
-    player_center_x = player.x + (player.get_width() / 2)
-    player_center_y = player.y + (player.get_height() / 2)
-
-    nearest_enemy_dist_sq = float("inf")
-    nearest_enemy_dx = 0.0
-    nearest_enemy_dy = 0.0
-
-    nearest_laser_dist_sq = float("inf")
-    nearest_laser_dx = 0.0
-    nearest_laser_dy = HEIGHT
-
-    nearest_own_laser_dy_abs = float("inf")
-    nearest_own_laser_dy = 0.0
-    for laser in player.lasers:
-        laser_center_y = laser.y + (laser.img.get_height() / 2)
-        own_laser_dy = laser_center_y - player_center_y
-        if abs(own_laser_dy) < nearest_own_laser_dy_abs:
-            nearest_own_laser_dy_abs = abs(own_laser_dy)
-            nearest_own_laser_dy = own_laser_dy
-
-    boss_present = 0.0
-    for enemy in enemies:
-        if isinstance(enemy, Boss):
-            boss_present = 1.0
-
-        enemy_center_x = enemy.x + (enemy.get_width() / 2)
-        enemy_center_y = enemy.y + (enemy.get_height() / 2)
-        enemy_dx = enemy_center_x - player_center_x
-        enemy_dy = enemy_center_y - player_center_y
-        enemy_dist_sq = (enemy_dx * enemy_dx) + (enemy_dy * enemy_dy)
-        if enemy_dist_sq < nearest_enemy_dist_sq:
-            nearest_enemy_dist_sq = enemy_dist_sq
-            nearest_enemy_dx = enemy_dx
-            nearest_enemy_dy = enemy_dy
-
-        for laser in enemy.lasers:
-            laser_center_x = laser.x + (laser.img.get_width() / 2)
-            laser_center_y = laser.y + (laser.img.get_height() / 2)
-            laser_dx = laser_center_x - player_center_x
-            laser_dy = laser_center_y - player_center_y
-            laser_dist_sq = (laser_dx * laser_dx) + (laser_dy * laser_dy)
-            if laser_dist_sq < nearest_laser_dist_sq:
-                nearest_laser_dist_sq = laser_dist_sq
-                nearest_laser_dx = laser_dx
-                nearest_laser_dy = laser_dy
-
-    return (
-        max(0.0, min(1.0, player_center_x / WIDTH)),
-        max(0.0, min(1.0, player_center_y / HEIGHT)),
-        clamp_signed(nearest_enemy_dx, WIDTH),
-        clamp_signed(nearest_enemy_dy, HEIGHT),
-        clamp_signed(nearest_laser_dx, WIDTH),
-        clamp_signed(nearest_laser_dy, HEIGHT),
-        min(1.0, len(enemies) / 20.0),
-        boss_present,
-        min(1.0, len(player.lasers) / 6.0),
-        min(1.0, player.cool_down_counter / player.COOLDOWN),
-        clamp_signed(nearest_own_laser_dy, HEIGHT),
-    )
+    return build_observation_for_world(player, enemies, WIDTH, HEIGHT)
 
 
 def draw_window(win, enemies, players, gen, level, lives_remaining, boss=None):
@@ -392,27 +315,10 @@ def run_single_agent_episode(
     gen_label=0,
     draw_episode=False,
     max_frames=EVAL_MAX_FRAMES,
-):
+) -> EpisodeResult:
     fitness_delta = 0.0
-    reward_totals = {
-        "survival_reward_total": 0.0,
-        "kill_reward_total": 0.0,
-        "wave_clear_reward_total": 0.0,
-        "shot_penalty_total": 0.0,
-        "death_penalty_total": 0.0,
-        "enemy_escape_penalty_total": 0.0,
-        "level_fail_penalty_total": 0.0,
-    }
-    event_totals = {
-        "shots_fired": 0,
-        "kills": 0,
-        "boss_kills": 0,
-        "enemy_escapes": 0,
-        "player_deaths": 0,
-        "wave_clears": 0,
-        "level_failures": 0,
-        "laser_hits_taken": 0,
-    }
+    reward_totals = RewardTotals()
+    event_totals = EventTotals()
 
     player = Player(300, 630)
     apply_profile_visuals_to_player(player, ACTIVE_REWARD_PROFILE_NAME)
@@ -457,14 +363,14 @@ def run_single_agent_episode(
                 frame_result.active_boss,
             )
 
-    return {
-        "fitness_delta": fitness_delta,
-        "frames": frame_count,
-        "lives_remaining": episode_state.lives,
-        "player_alive": int(episode_state.player.health > 0 and episode_state.lives > 0),
-        "event_totals": event_totals,
-        "reward_totals": reward_totals,
-    }
+    return EpisodeResult(
+        fitness_delta=fitness_delta,
+        frames=frame_count,
+        lives_remaining=episode_state.lives,
+        player_alive=int(episode_state.player.health > 0 and episode_state.lives > 0),
+        event_totals=event_totals,
+        reward_totals=reward_totals,
+    )
 
 
 def make_eval_genomes(win):
@@ -477,25 +383,8 @@ def make_eval_genomes(win):
         generation_index = generation_label - 1
 
         reward = ACTIVE_REWARD_PROFILE
-        reward_totals = {
-            "survival_reward_total": 0.0,
-            "kill_reward_total": 0.0,
-            "wave_clear_reward_total": 0.0,
-            "shot_penalty_total": 0.0,
-            "death_penalty_total": 0.0,
-            "enemy_escape_penalty_total": 0.0,
-            "level_fail_penalty_total": 0.0,
-        }
-        event_totals = {
-            "shots_fired": 0,
-            "kills": 0,
-            "boss_kills": 0,
-            "enemy_escapes": 0,
-            "player_deaths": 0,
-            "wave_clears": 0,
-            "level_failures": 0,
-            "laser_hits_taken": 0,
-        }
+        reward_totals = RewardTotals()
+        event_totals = EventTotals()
         frame_count = 0
         survivors_at_end = 0
         average_lives_sum = 0.0
@@ -527,15 +416,13 @@ def make_eval_genomes(win):
                     max_frames=EVAL_MAX_FRAMES,
                 )
 
-                episode_fitness_values.append(episode_result["fitness_delta"])
-                episode_lives_values.append(episode_result["lives_remaining"])
-                last_episode_alive = episode_result["player_alive"]
-                frame_count += episode_result["frames"]
+                episode_fitness_values.append(episode_result.fitness_delta)
+                episode_lives_values.append(episode_result.lives_remaining)
+                last_episode_alive = episode_result.player_alive
+                frame_count += episode_result.frames
 
-                for key, value in episode_result["event_totals"].items():
-                    event_totals[key] += value
-                for key, value in episode_result["reward_totals"].items():
-                    reward_totals[key] += value
+                event_totals.merge(episode_result.event_totals)
+                reward_totals.merge(episode_result.reward_totals)
 
             genome.fitness = sum(episode_fitness_values) / EVAL_EPISODES_PER_GENOME
             fitness_values.append(genome.fitness)
@@ -546,42 +433,42 @@ def make_eval_genomes(win):
         avg_fitness = sum(fitness_values) / population_size
         best_fitness = max(fitness_values)
         worst_fitness = min(fitness_values)
-        kill_per_shot = event_totals["kills"] / event_totals["shots_fired"] if event_totals["shots_fired"] > 0 else 0.0
+        kill_per_shot = event_totals.kills / event_totals.shots_fired if event_totals.shots_fired > 0 else 0.0
 
-        metrics_row = {
-            "generation": generation_index,
-            "frames": frame_count,
-            "population_size": population_size,
-            "survivors_at_end": survivors_at_end,
-            "lives_remaining": average_lives_remaining,
-            "avg_fitness": round(avg_fitness, 5),
-            "best_fitness": round(best_fitness, 5),
-            "worst_fitness": round(worst_fitness, 5),
-            "shots_fired": event_totals["shots_fired"],
-            "kills": event_totals["kills"],
-            "enemy_escapes": event_totals["enemy_escapes"],
-            "player_deaths": event_totals["player_deaths"],
-            "wave_clears": event_totals["wave_clears"],
-            "level_failures": event_totals["level_failures"],
-            "kill_per_shot": round(kill_per_shot, 5),
-            "survival_reward_total": round(reward_totals["survival_reward_total"], 5),
-            "kill_reward_total": round(reward_totals["kill_reward_total"], 5),
-            "wave_clear_reward_total": round(reward_totals["wave_clear_reward_total"], 5),
-            "shot_penalty_total": round(reward_totals["shot_penalty_total"], 5),
-            "death_penalty_total": round(reward_totals["death_penalty_total"], 5),
-            "enemy_escape_penalty_total": round(reward_totals["enemy_escape_penalty_total"], 5),
-            "level_fail_penalty_total": round(reward_totals["level_fail_penalty_total"], 5),
-        }
+        metrics_row = GenerationMetricsRow(
+            generation=generation_index,
+            frames=frame_count,
+            population_size=population_size,
+            survivors_at_end=survivors_at_end,
+            lives_remaining=average_lives_remaining,
+            avg_fitness=round(avg_fitness, 5),
+            best_fitness=round(best_fitness, 5),
+            worst_fitness=round(worst_fitness, 5),
+            shots_fired=event_totals.shots_fired,
+            kills=event_totals.kills,
+            enemy_escapes=event_totals.enemy_escapes,
+            player_deaths=event_totals.player_deaths,
+            wave_clears=event_totals.wave_clears,
+            level_failures=event_totals.level_failures,
+            kill_per_shot=round(kill_per_shot, 5),
+            survival_reward_total=round(reward_totals.survival_reward_total, 5),
+            kill_reward_total=round(reward_totals.kill_reward_total, 5),
+            wave_clear_reward_total=round(reward_totals.wave_clear_reward_total, 5),
+            shot_penalty_total=round(reward_totals.shot_penalty_total, 5),
+            death_penalty_total=round(reward_totals.death_penalty_total, 5),
+            enemy_escape_penalty_total=round(reward_totals.enemy_escape_penalty_total, 5),
+            level_fail_penalty_total=round(reward_totals.level_fail_penalty_total, 5),
+        )
         append_training_metrics_row(metrics_row)
 
         print(
             f"[RewardLog][Profile {ACTIVE_REWARD_PROFILE_NAME}][Gen {generation_index}] "
             f"episodes/genome={EVAL_EPISODES_PER_GENOME} "
-            f"shots={metrics_row['shots_fired']} kills={metrics_row['kills']} k/shot={metrics_row['kill_per_shot']:.3f} "
-            f"reward_totals(survival={metrics_row['survival_reward_total']:.3f}, "
-            f"kill={metrics_row['kill_reward_total']:.3f}, wave={metrics_row['wave_clear_reward_total']:.3f}, "
-            f"shot={metrics_row['shot_penalty_total']:.3f}, death={metrics_row['death_penalty_total']:.3f}, "
-            f"escape={metrics_row['enemy_escape_penalty_total']:.3f}, fail={metrics_row['level_fail_penalty_total']:.3f})"
+            f"shots={metrics_row.shots_fired} kills={metrics_row.kills} k/shot={metrics_row.kill_per_shot:.3f} "
+            f"reward_totals(survival={metrics_row.survival_reward_total:.3f}, "
+            f"kill={metrics_row.kill_reward_total:.3f}, wave={metrics_row.wave_clear_reward_total:.3f}, "
+            f"shot={metrics_row.shot_penalty_total:.3f}, death={metrics_row.death_penalty_total:.3f}, "
+            f"escape={metrics_row.enemy_escape_penalty_total:.3f}, fail={metrics_row.level_fail_penalty_total:.3f})"
         )
 
     return eval_genomes
@@ -660,18 +547,18 @@ def evaluate_genome_episode(genome, config, seed, max_frames=3600):
         max_frames=max_frames,
     )
 
-    event_totals = episode_result["event_totals"]
-    return {
-        "seed": seed,
-        "frames_survived": episode_result["frames"],
-        "kills": event_totals["kills"],
-        "boss_kills": event_totals["boss_kills"],
-        "wave_clears": event_totals["wave_clears"],
-        "shots_fired": event_totals["shots_fired"],
-        "laser_hits_taken": event_totals["laser_hits_taken"],
-        "lives_remaining": episode_result["lives_remaining"],
-        "player_alive": episode_result["player_alive"],
-    }
+    event_totals = episode_result.event_totals
+    return GenomeEpisodeMetrics(
+        seed=seed,
+        frames_survived=episode_result.frames,
+        kills=event_totals.kills,
+        boss_kills=event_totals.boss_kills,
+        wave_clears=event_totals.wave_clears,
+        shots_fired=event_totals.shots_fired,
+        laser_hits_taken=event_totals.laser_hits_taken,
+        lives_remaining=episode_result.lives_remaining,
+        player_alive=episode_result.player_alive,
+    )
 
 
 def benchmark_genome(genome, config, base_seed, episodes=3, max_frames=3600):
@@ -685,32 +572,36 @@ def benchmark_genome(genome, config, base_seed, episodes=3, max_frames=3600):
         for episode in range(episodes)
     ]
 
-    totals = {
-        "avg_frames_survived": 0.0,
-        "avg_kills": 0.0,
-        "avg_boss_kills": 0.0,
-        "avg_wave_clears": 0.0,
-        "avg_shots_fired": 0.0,
-        "avg_laser_hits_taken": 0.0,
-        "avg_lives_remaining": 0.0,
-    }
+    avg_frames_survived = 0.0
+    avg_kills = 0.0
+    avg_boss_kills = 0.0
+    avg_wave_clears = 0.0
+    avg_shots_fired = 0.0
+    avg_laser_hits_taken = 0.0
+    avg_lives_remaining = 0.0
     total_shots = 0
     total_kills = 0
     for metrics in episode_metrics:
-        totals["avg_frames_survived"] += metrics["frames_survived"]
-        totals["avg_kills"] += metrics["kills"]
-        totals["avg_boss_kills"] += metrics["boss_kills"]
-        totals["avg_wave_clears"] += metrics["wave_clears"]
-        totals["avg_shots_fired"] += metrics["shots_fired"]
-        totals["avg_laser_hits_taken"] += metrics["laser_hits_taken"]
-        totals["avg_lives_remaining"] += metrics["lives_remaining"]
-        total_shots += metrics["shots_fired"]
-        total_kills += metrics["kills"]
+        avg_frames_survived += metrics.frames_survived
+        avg_kills += metrics.kills
+        avg_boss_kills += metrics.boss_kills
+        avg_wave_clears += metrics.wave_clears
+        avg_shots_fired += metrics.shots_fired
+        avg_laser_hits_taken += metrics.laser_hits_taken
+        avg_lives_remaining += metrics.lives_remaining
+        total_shots += metrics.shots_fired
+        total_kills += metrics.kills
 
-    for key in totals:
-        totals[key] = round(totals[key] / episodes, 4)
-    totals["kill_per_shot"] = round((total_kills / total_shots) if total_shots > 0 else 0.0, 4)
-    return totals
+    return BenchmarkMetrics(
+        avg_frames_survived=round(avg_frames_survived / episodes, 4),
+        avg_kills=round(avg_kills / episodes, 4),
+        avg_boss_kills=round(avg_boss_kills / episodes, 4),
+        avg_wave_clears=round(avg_wave_clears / episodes, 4),
+        avg_shots_fired=round(avg_shots_fired / episodes, 4),
+        avg_laser_hits_taken=round(avg_laser_hits_taken / episodes, 4),
+        avg_lives_remaining=round(avg_lives_remaining / episodes, 4),
+        kill_per_shot=round((total_kills / total_shots) if total_shots > 0 else 0.0, 4),
+    )
 
 
 def run_experiment(config_file, generations, base_seed=42, episodes=3, max_frames=3600):
@@ -744,17 +635,17 @@ def run_experiment(config_file, generations, base_seed=42, episodes=3, max_frame
             max_frames=max_frames,
         )
 
-        result = {
-            "profile": profile_name,
-            "winner_fitness": round(winner.fitness, 5),
-            "winner_path": winner_path,
-            **benchmark,
-        }
+        result = ExperimentResult(
+            profile=profile_name,
+            winner_fitness=round(winner.fitness, 5),
+            winner_path=winner_path,
+            benchmark=benchmark,
+        )
         results.append(result)
         print(
             f"Benchmark {profile_name}: "
-            f"avg_kills={result['avg_kills']}, avg_wave_clears={result['avg_wave_clears']}, "
-            f"avg_frames={result['avg_frames_survived']}, kill_per_shot={result['kill_per_shot']}"
+            f"avg_kills={result.benchmark.avg_kills}, avg_wave_clears={result.benchmark.avg_wave_clears}, "
+            f"avg_frames={result.benchmark.avg_frames_survived}, kill_per_shot={result.benchmark.kill_per_shot}"
         )
 
     summary_fields = [
@@ -774,25 +665,19 @@ def run_experiment(config_file, generations, base_seed=42, episodes=3, max_frame
         writer = csv.DictWriter(summary_file, fieldnames=summary_fields)
         writer.writeheader()
         for result in results:
-            writer.writerow(result)
+            writer.writerow(result.as_summary_row())
 
     ranked = sorted(
         results,
-        key=lambda item: (
-            item["avg_wave_clears"],
-            item["avg_kills"],
-            item["avg_frames_survived"],
-            -item["avg_laser_hits_taken"],
-            item["kill_per_shot"],
-        ),
+        key=lambda item: item.ranking_key(),
         reverse=True,
     )
     print("\nExperiment ranking (best first):")
     for rank, result in enumerate(ranked, start=1):
         print(
-            f"{rank}. {result['profile']} "
-            f"(waves={result['avg_wave_clears']}, kills={result['avg_kills']}, "
-            f"frames={result['avg_frames_survived']}, hits={result['avg_laser_hits_taken']})"
+            f"{rank}. {result.profile} "
+            f"(waves={result.benchmark.avg_wave_clears}, kills={result.benchmark.avg_kills}, "
+            f"frames={result.benchmark.avg_frames_survived}, hits={result.benchmark.avg_laser_hits_taken})"
         )
     print(f"\nExperiment summary written to: {EXPERIMENT_SUMMARY_PATH}")
 

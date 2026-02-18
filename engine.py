@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
 from Object import Enemy, Boss, collide
+from training_types import EventTotals, RewardProfile, RewardTotals
 
 
 @dataclass
@@ -39,12 +40,6 @@ def _spawn_boss_wave(state, world_width):
     state.enemies.append(Boss(boss_x, -Boss.BOSS_HEIGHT, state.level))
 
 
-def _apply_reward(delta, reward_key, reward_totals):
-    if reward_totals is not None:
-        reward_totals[reward_key] += delta
-    return delta
-
-
 def step_frame(
     state,
     net,
@@ -52,22 +47,19 @@ def step_frame(
     build_observation,
     world_width,
     world_height,
-    reward_values=None,
-    event_totals=None,
-    reward_totals=None,
+    reward_values: RewardProfile = None,
+    event_totals: EventTotals = None,
+    reward_totals: RewardTotals = None,
 ):
     """Advance the simulation by one frame for both training and replay."""
     fitness_delta = 0.0
 
-    survival_reward = reward_values["survival_reward"] if reward_values else 0.0
-    kill_reward = reward_values["kill_reward"] if reward_values else 0.0
-    boss_kill_reward = reward_values["boss_kill_reward"] if reward_values else 0.0
-    wave_clear_reward = reward_values["wave_clear_reward"] if reward_values else 0.0
-    shot_penalty = reward_values["shot_penalty"] if reward_values else 0.0
-    laser_hit_penalty = reward_values["laser_hit_penalty"] if reward_values else 0.0
-    death_penalty = reward_values["death_penalty"] if reward_values else 0.0
-    enemy_escape_penalty = reward_values["enemy_escape_penalty"] if reward_values else 0.0
-    level_fail_penalty = reward_values["level_fail_penalty"] if reward_values else 0.0
+    if isinstance(reward_values, RewardProfile):
+        reward_profile = reward_values
+    elif reward_values is not None:
+        reward_profile = RewardProfile(**reward_values)
+    else:
+        reward_profile = None
 
     if len(state.enemies) == 0:
         if state.boss_active:
@@ -75,17 +67,23 @@ def step_frame(
             _spawn_regular_wave(state, rng, world_width)
         elif state.level > 0:
             if event_totals is not None:
-                event_totals["wave_clears"] += 1
-            if reward_values:
-                fitness_delta += _apply_reward(wave_clear_reward, "wave_clear_reward_total", reward_totals)
+                event_totals.wave_clears += 1
+            if reward_profile is not None:
+                reward_delta = reward_profile.wave_clear_reward
+                fitness_delta += reward_delta
+                if reward_totals is not None:
+                    reward_totals.wave_clear_reward_total += reward_delta
             state.boss_active = True
             _spawn_boss_wave(state, world_width)
         else:
             state.boss_active = False
             _spawn_regular_wave(state, rng, world_width)
 
-    if reward_values:
-        fitness_delta += _apply_reward(survival_reward, "survival_reward_total", reward_totals)
+    if reward_profile is not None:
+        reward_delta = reward_profile.survival_reward
+        fitness_delta += reward_delta
+        if reward_totals is not None:
+            reward_totals.survival_reward_total += reward_delta
 
     output = net.activate(build_observation(state.player, state.enemies))
     if output[0] > 0.5 and state.player.x + state.player.PLAYER_VEL + state.player.get_width() < world_width:
@@ -97,9 +95,12 @@ def step_frame(
         state.player.shoot()
         if len(state.player.lasers) > shots_before:
             if event_totals is not None:
-                event_totals["shots_fired"] += 1
-            if reward_values:
-                fitness_delta += _apply_reward(-shot_penalty, "shot_penalty_total", reward_totals)
+                event_totals.shots_fired += 1
+            if reward_profile is not None:
+                reward_delta = -reward_profile.shot_penalty
+                fitness_delta += reward_delta
+                if reward_totals is not None:
+                    reward_totals.shot_penalty_total += reward_delta
 
     state.player.cooldown()
     for laser in state.player.lasers[:]:
@@ -116,12 +117,18 @@ def step_frame(
                 if enemy.health <= 0 and enemy in state.enemies:
                     state.enemies.remove(enemy)
                     if event_totals is not None:
-                        event_totals["kills"] += 1
+                        event_totals.kills += 1
                         if isinstance(enemy, Boss):
-                            event_totals["boss_kills"] += 1
-                    if reward_values:
-                        reward_delta = boss_kill_reward if isinstance(enemy, Boss) else kill_reward
-                        fitness_delta += _apply_reward(reward_delta, "kill_reward_total", reward_totals)
+                            event_totals.boss_kills += 1
+                    if reward_profile is not None:
+                        reward_delta = (
+                            reward_profile.boss_kill_reward
+                            if isinstance(enemy, Boss)
+                            else reward_profile.kill_reward
+                        )
+                        fitness_delta += reward_delta
+                        if reward_totals is not None:
+                            reward_totals.kill_reward_total += reward_delta
                 break
 
     for enemy in state.enemies[:]:
@@ -145,9 +152,12 @@ def step_frame(
             if laser.collision(state.player):
                 state.player.health -= 100
                 if event_totals is not None:
-                    event_totals["laser_hits_taken"] += 1
-                if reward_values:
-                    fitness_delta += _apply_reward(-laser_hit_penalty, "death_penalty_total", reward_totals)
+                    event_totals.laser_hits_taken += 1
+                if reward_profile is not None:
+                    reward_delta = -reward_profile.laser_hit_penalty
+                    fitness_delta += reward_delta
+                    if reward_totals is not None:
+                        reward_totals.death_penalty_total += reward_delta
                 if laser in enemy.lasers:
                     enemy.lasers.remove(laser)
 
@@ -155,10 +165,12 @@ def step_frame(
             lives_loss = 2 if isinstance(enemy, Boss) else 1
             state.lives -= lives_loss
             if event_totals is not None:
-                event_totals["enemy_escapes"] += 1
-            if reward_values:
-                reward_delta = -enemy_escape_penalty * lives_loss
-                fitness_delta += _apply_reward(reward_delta, "enemy_escape_penalty_total", reward_totals)
+                event_totals.enemy_escapes += 1
+            if reward_profile is not None:
+                reward_delta = -reward_profile.enemy_escape_penalty * lives_loss
+                fitness_delta += reward_delta
+                if reward_totals is not None:
+                    reward_totals.enemy_escape_penalty_total += reward_delta
             state.enemies.remove(enemy)
             continue
 
@@ -171,15 +183,21 @@ def step_frame(
     if state.player.health <= 0:
         terminal = True
         if event_totals is not None:
-            event_totals["player_deaths"] += 1
-        if reward_values:
-            fitness_delta += _apply_reward(-death_penalty, "death_penalty_total", reward_totals)
+            event_totals.player_deaths += 1
+        if reward_profile is not None:
+            reward_delta = -reward_profile.death_penalty
+            fitness_delta += reward_delta
+            if reward_totals is not None:
+                reward_totals.death_penalty_total += reward_delta
     elif state.lives <= 0:
         terminal = True
         if event_totals is not None:
-            event_totals["level_failures"] += 1
-        if reward_values:
-            fitness_delta += _apply_reward(-level_fail_penalty, "level_fail_penalty_total", reward_totals)
+            event_totals.level_failures += 1
+        if reward_profile is not None:
+            reward_delta = -reward_profile.level_fail_penalty
+            fitness_delta += reward_delta
+            if reward_totals is not None:
+                reward_totals.level_fail_penalty_total += reward_delta
 
     active_boss = next((enemy for enemy in state.enemies if isinstance(enemy, Boss)), None)
     return StepResult(
