@@ -183,20 +183,85 @@ def infer_profile_from_genome_path(path):
 
 
 def resolve_start_mode(cli_mode):
-    if cli_mode in ("fresh", "best"):
+    if cli_mode in ("fresh", "best", "player"):
         return cli_mode
 
     print("\nSelect start mode:")
     print("  1) Fresh training run")
     print("  2) Replay best saved genome")
+    print("  3) Play yourself")
     try:
-        choice = input("Enter 1 or 2 [default: 1]: ").strip()
+        choice = input("Enter 1, 2, or 3 [default: 1]: ").strip()
     except EOFError:
         return "fresh"
 
     if choice == "2":
         return "best"
+    if choice == "3":
+        return "player"
     return "fresh"
+
+
+class HumanNet:
+    """Translates live keyboard state into the same 3-output format the NEAT nets use."""
+
+    def activate(self, observation):
+        keys = pygame.key.get_pressed()
+        move_right = 1.0 if (keys[pygame.K_RIGHT] or keys[pygame.K_d]) else 0.0
+        move_left = 1.0 if (keys[pygame.K_LEFT] or keys[pygame.K_a]) else 0.0
+        shoot = 1.0 if (keys[pygame.K_SPACE] or keys[pygame.K_UP] or keys[pygame.K_w]) else 0.0
+        return [move_right, move_left, shoot]
+
+
+def play_as_human():
+    """Run an interactive game session controlled by keyboard input."""
+    win = WIN
+    clock = pygame.time.Clock()
+    fps = 60
+    player = Player(300, 630)
+    apply_profile_visuals_to_player(player, ACTIVE_REWARD_PROFILE_NAME)
+    episode_state = EpisodeState(player=player)
+    net = HumanNet()
+
+    print("Controls: LEFT/RIGHT arrows or A/D to move, SPACE/UP/W to shoot. Close the window to quit.")
+    run = True
+    while run and episode_state.player.health > 0 and episode_state.lives > 0:
+        clock.tick(fps)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                run = False
+                break
+
+        if not run:
+            break
+
+        frame_result = step_frame(
+            episode_state,
+            net,
+            random,
+            build_observation=build_observation,
+            world_width=WIDTH,
+            world_height=HEIGHT,
+            reward_values=None,
+            event_totals=None,
+            reward_totals=None,
+        )
+
+        draw_window(
+            win,
+            episode_state.enemies,
+            [episode_state.player],
+            0,
+            episode_state.level,
+            episode_state.lives,
+            frame_result.active_boss,
+        )
+
+    if episode_state.player.health <= 0:
+        print("Game over: player destroyed.")
+    elif episode_state.lives <= 0:
+        print("Game over: lives depleted.")
 
 
 def build_observation(player, enemies):
@@ -725,9 +790,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
-        choices=("prompt", "fresh", "best"),
+        choices=("prompt", "fresh", "best", "player"),
         default="prompt",
-        help="Start mode: interactive prompt, fresh training, or replay saved best genome.",
+        help="Start mode: interactive prompt, fresh training, replay saved best genome, or human player.",
     )
     parser.add_argument(
         "--genome-path",
@@ -777,7 +842,9 @@ if __name__ == '__main__':
         )
     else:
         start_mode = resolve_start_mode(args.mode)
-        if start_mode == "best":
+        if start_mode == "player":
+            play_as_human()
+        elif start_mode == "best":
             replay_saved_genome(config_path, args.genome_path)
         else:
             run(
